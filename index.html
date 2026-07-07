@@ -38,13 +38,13 @@
       if (!href || href === '#') return '';
       try { href = new URL(href, location.href).pathname.split('/').pop() || href; } catch (error) {}
       try { href = decodeURIComponent(String(href)); } catch (error) {}
-      href = String(href).replace(/^.//, '').replace(/[?#].*$/, '');
+      href = String(href).replace(/^\.\//, '').replace(/[?#].*$/, '');
       return PAGES[href] ? href : '';
     }
 
     function normalizePage(page) {
       try { page = decodeURIComponent(page || ''); } catch (error) {}
-      page = String(page || '').replace(/^#/, '').replace(/^.//, '').replace(/[?#].*$/, '');
+      page = String(page || '').replace(/^#/, '').replace(/^\.\//, '').replace(/[?#].*$/, '');
       return PAGES[page] ? page : DEFAULT_PAGE;
     }
 
