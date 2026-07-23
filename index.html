@@ -378,7 +378,8 @@
 
     function attachFrameNavigation() {
       const doc = frame.contentDocument;
-      if (!doc) return;
+      if (!doc || doc.__seedNavigationAttached) return;
+      doc.__seedNavigationAttached = true;
       doc.addEventListener("click", (event) => {
         const link = event.target && event.target.closest ? event.target.closest("a[href]") : null;
         if (!link) return;
@@ -386,15 +387,15 @@
         if (!targetPage) return;
         event.preventDefault();
         loadPage(targetPage);
-      });
+      }, true);
     }
 
     function loadPage(page, replaceHistory = false) {
       if (!window.seedAuth?.isAuthenticated()) return showLogin();
       currentPage = normalizePage(page);
       if (currentPage === "账号管理.html" && !window.seedAuth.isAdmin()) currentPage = DEFAULT_PAGE;
-      frame.srcdoc = PAGES[currentPage];
       frame.onload = attachFrameNavigation;
+      frame.srcdoc = PAGES[currentPage];
       const hash = "#" + encodeURIComponent(currentPage);
       if (replaceHistory) {
         history.replaceState(null, "", hash);
