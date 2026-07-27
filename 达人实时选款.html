@@ -27,8 +27,7 @@
     .status { min-height:48px; display:flex; align-items:center; justify-content:center; margin:18px 0; border:1px dashed #cbd5cf; border-radius:10px; color:var(--muted); background:rgba(255,255,255,.72); text-align:center; padding:10px; }
     .status.error { border-color:#e0b8b4; color:var(--danger); background:#fff7f6; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; }
-    .load-more { display:block; width:min(360px,100%); min-height:46px; margin:18px auto 0; border:1px solid #8cb7a1; border-radius:9px; background:#fff; color:var(--green); font-weight:800; cursor:pointer; }
-    .product { position:relative; overflow:hidden; display:grid; grid-template-rows:auto auto; border:1px solid var(--line); border-radius:13px; background:var(--paper); box-shadow:0 10px 28px rgba(35,57,47,.06); }
+    .product { position:relative; overflow:hidden; display:grid; grid-template-rows:auto auto; contain-intrinsic-size:auto 460px; content-visibility:auto; border:1px solid var(--line); border-radius:13px; background:var(--paper); box-shadow:0 10px 28px rgba(35,57,47,.06); }
     .product.is-selected { border-color:var(--green); box-shadow:0 0 0 2px rgba(36,120,90,.14),0 10px 28px rgba(35,57,47,.08); }
     .product.is-full { opacity:.62; }
     .image { position:relative; display:grid; width:100%; padding:0; border:0; place-items:center; aspect-ratio:16/9; background:#f1f4f1; color:#7a847e; font-size:14px; overflow:hidden; cursor:zoom-in; touch-action:manipulation; }
@@ -92,7 +91,6 @@
     </section>
     <div class="status" id="status">正在同步实时名额…</div>
     <section class="grid" id="productGrid" aria-live="polite"></section>
-    <button class="load-more" id="loadMoreProducts" type="button" hidden>继续加载商品</button>
   </main>
   <div class="selection-dock" id="selectionDock" hidden>
     <button type="button" id="openSelected" aria-haspopup="dialog">
@@ -129,7 +127,6 @@
     let creatorName = localStorage.getItem(nameStorageKey) || "";
     let payload = null;
     let submitting = false;
-    let productRenderCount = 6;
     const draftProductIds = new Set();
     const previewPointers = new Map();
     let previewZoom = 1;
@@ -178,9 +175,8 @@
           || (gradeOrder[left.grade] ?? 9) - (gradeOrder[right.grade] ?? 9)
           || String(left.style_code || left.product_id).localeCompare(String(right.style_code || right.product_id), "zh-CN");
       });
-      const visibleProducts = products.slice(0, productRenderCount);
       const grid = document.getElementById("productGrid");
-      grid.innerHTML = visibleProducts.map((product) => {
+      grid.innerHTML = products.map((product) => {
         const selected = selectedIds.has(product.product_id);
         const drafted = draftProductIds.has(product.product_id);
         const selectedOrDrafted = selected || drafted;
@@ -188,7 +184,7 @@
         const available = configured && (product.available || selected);
         return `
           <article class="product ${selectedOrDrafted ? "is-selected" : ""} ${available ? "" : "is-full"}">
-            <button class="image" type="button" data-preview-url="${escapeHtml(product.image_url || "")}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" loading="lazy" />` : "商品图片待补"}</button>
+            <button class="image" type="button" data-preview-url="${escapeHtml(product.image_url || "")}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" width="1467" height="825" loading="lazy" decoding="async" fetchpriority="low" />` : "商品图片待补"}</button>
             <div class="body">
               <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
               <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
@@ -198,10 +194,6 @@
           </article>
         `;
       }).join("");
-      const loadMoreButton = document.getElementById("loadMoreProducts");
-      const remainingProductCount = Math.max(products.length - visibleProducts.length, 0);
-      loadMoreButton.hidden = remainingProductCount === 0;
-      loadMoreButton.textContent = `继续加载商品（剩余 ${remainingProductCount} 款）`;
       document.getElementById("status").hidden = products.length > 0;
       document.getElementById("creatorNameInput").value = creatorName;
       document.getElementById("startSelection").textContent = "修改达人名称";
@@ -365,7 +357,6 @@
       }
       try {
         payload = await call("open");
-        productRenderCount = Math.max(productRenderCount, 6);
         render();
       } catch (error) {
         status.className = "status error";
@@ -386,10 +377,6 @@
     });
 
     document.getElementById("openSelected").addEventListener("click", () => openModal("selectedModal"));
-    document.getElementById("loadMoreProducts").addEventListener("click", () => {
-      productRenderCount += 6;
-      render();
-    });
     document.getElementById("submitSelection").addEventListener("click", () => void submitDraftSelection());
     document.getElementById("closeSelected").addEventListener("click", () => closeModal("selectedModal"));
     document.getElementById("closePreview").addEventListener("click", () => closeModal("previewModal"));
