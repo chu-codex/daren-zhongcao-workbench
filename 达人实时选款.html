@@ -48,10 +48,14 @@
     .modal { position:fixed; z-index:50; inset:0; display:grid; background:rgba(10,16,13,.78); }
     .modal[hidden] { display:none; }
     .modal-close { position:absolute; z-index:2; top:max(14px,env(safe-area-inset-top)); right:14px; width:48px; height:48px; border:1px solid rgba(255,255,255,.5); border-radius:50%; background:rgba(20,33,28,.84); color:#fff; font-size:28px; line-height:1; cursor:pointer; touch-action:manipulation; }
-    .preview-modal { place-items:center; padding:72px 12px 24px; overflow:auto; overscroll-behavior:contain; }
-    .preview-modal figure { display:grid; width:min(1200px,100%); min-height:calc(100dvh - 110px); margin:0; place-items:center; align-content:center; gap:12px; }
-    .preview-modal img { display:block; max-width:100%; max-height:calc(100dvh - 150px); object-fit:contain; background:#fff; box-shadow:0 16px 60px rgba(0,0,0,.32); }
+    .preview-modal { place-items:center; padding:72px 12px 24px; overflow:hidden; overscroll-behavior:contain; }
+    .preview-modal figure { display:grid; width:min(1200px,100%); min-height:calc(100dvh - 110px); margin:0; place-items:center; align-content:center; gap:12px; touch-action:none; }
+    .preview-modal img { display:block; max-width:100%; max-height:calc(100dvh - 150px); object-fit:contain; background:#fff; box-shadow:0 16px 60px rgba(0,0,0,.32); transform:translate3d(var(--pan-x,0),var(--pan-y,0),0) scale(var(--zoom,1)); transition:transform .18s ease-out; user-select:none; -webkit-user-drag:none; touch-action:none; }
+    .preview-modal img.is-gesturing { transition:none; }
     .preview-modal figcaption { color:#fff; font-weight:700; text-align:center; }
+    .preview-tools { position:absolute; z-index:2; top:max(14px,env(safe-area-inset-top)); left:14px; display:flex; min-height:48px; align-items:center; gap:10px; }
+    .preview-tools button { min-width:64px; min-height:48px; border:1px solid rgba(255,255,255,.5); border-radius:24px; background:rgba(20,33,28,.84); color:#fff; font-weight:700; cursor:pointer; }
+    .preview-tools span { padding:7px 10px; border-radius:999px; background:rgba(20,33,28,.72); color:#fff; font-size:12px; }
     .sheet-modal { align-items:end; background:rgba(10,16,13,.56); }
     .sheet { width:min(720px,100%); max-height:min(78dvh,720px); margin:0 auto; overflow:hidden; border-radius:20px 20px 0 0; background:#fff; box-shadow:0 -16px 48px rgba(20,33,28,.2); }
     .sheet-head { display:flex; min-height:64px; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); }
@@ -93,6 +97,10 @@
     </button>
   </div>
   <div class="modal preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="商品大图预览" hidden>
+    <div class="preview-tools">
+      <button id="resetPreview" type="button">还原</button>
+      <span id="previewScale">双指缩放 · 100%</span>
+    </div>
     <button class="modal-close" id="closePreview" type="button" aria-label="关闭大图">×</button>
     <figure>
       <img id="previewImage" alt="" />
@@ -116,6 +124,12 @@
     let creatorName = localStorage.getItem(nameStorageKey) || "";
     let payload = null;
     let submitting = false;
+    const previewPointers = new Map();
+    let previewZoom = 1;
+    let previewPanX = 0;
+    let previewPanY = 0;
+    let previewDistance = 0;
+    let previewCenter = null;
 
     function escapeHtml(value) {
       return String(value || "").replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[char]);
@@ -143,8 +157,19 @@
         <span class="chip">${escapeHtml(link.project_name || "本轮项目")}</span>
         <span class="chip">${escapeHtml(link.grade || "全部等级")}</span>
       `;
-      const products = payload.products || [];
       const selectedIds = new Set(link.selected_product_ids || []);
+      const gradeOrder = { "S级": 0, "A级": 1, "B级": 2, "C级": 3 };
+      const products = [...(payload.products || [])].sort((left, right) => {
+        const leftSelected = selectedIds.has(left.product_id);
+        const rightSelected = selectedIds.has(right.product_id);
+        const leftAvailable = Number(left.target_count) > 0 && (left.available || leftSelected);
+        const rightAvailable = Number(right.target_count) > 0 && (right.available || rightSelected);
+        const leftRank = leftAvailable && !leftSelected ? 0 : leftSelected ? 1 : 2;
+        const rightRank = rightAvailable && !rightSelected ? 0 : rightSelected ? 1 : 2;
+        return leftRank - rightRank
+          || (gradeOrder[left.grade] ?? 9) - (gradeOrder[right.grade] ?? 9)
+          || String(left.style_code || left.product_id).localeCompare(String(right.style_code || right.product_id), "zh-CN");
+      });
       const grid = document.getElementById("productGrid");
       grid.innerHTML = products.map((product) => {
         const selected = selectedIds.has(product.product_id);
@@ -163,7 +188,8 @@
         `;
       }).join("");
       document.getElementById("status").hidden = products.length > 0;
-      document.getElementById("nameGate").hidden = true;
+      document.getElementById("creatorNameInput").value = creatorName;
+      document.getElementById("startSelection").textContent = "修改达人名称";
       const selected = products.filter((product) => selectedIds.has(product.product_id));
       const dock = document.getElementById("selectionDock");
       dock.hidden = !selected.length;
@@ -198,13 +224,54 @@
       }
     }
 
+    function applyPreviewTransform() {
+      const image = document.getElementById("previewImage");
+      const panLimit = (previewZoom - 1) * Math.max(innerWidth, innerHeight) / 2 + 40;
+      previewPanX = Math.max(-panLimit, Math.min(panLimit, previewPanX));
+      previewPanY = Math.max(-panLimit, Math.min(panLimit, previewPanY));
+      image.style.setProperty("--zoom", previewZoom.toFixed(3));
+      image.style.setProperty("--pan-x", `${Math.round(previewPanX)}px`);
+      image.style.setProperty("--pan-y", `${Math.round(previewPanY)}px`);
+      document.getElementById("previewScale").textContent = `双指缩放 · ${Math.round(previewZoom * 100)}%`;
+    }
+
+    function resetPreview() {
+      previewZoom = 1;
+      previewPanX = 0;
+      previewPanY = 0;
+      previewDistance = 0;
+      previewCenter = null;
+      previewPointers.clear();
+      applyPreviewTransform();
+    }
+
     function openPreview(url, caption) {
       if (!url) return;
+      resetPreview();
       document.getElementById("previewImage").src = url;
       document.getElementById("previewImage").alt = `${caption || "商品"}大图`;
       document.getElementById("previewCaption").textContent = caption || "";
       openModal("previewModal");
       document.getElementById("closePreview").focus();
+    }
+
+    function previewPoint(event) {
+      return { x:event.clientX, y:event.clientY };
+    }
+
+    function pointerDistance(points) {
+      return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    }
+
+    function pointerCenter(points) {
+      return { x:(points[0].x + points[1].x) / 2, y:(points[0].y + points[1].y) / 2 };
+    }
+
+    function endPreviewPointer(event) {
+      previewPointers.delete(event.pointerId);
+      previewDistance = 0;
+      previewCenter = null;
+      document.getElementById("previewImage").classList.toggle("is-gesturing", previewPointers.size > 0);
     }
 
     async function updateSelection(action, productId) {
@@ -262,6 +329,50 @@
     document.getElementById("openSelected").addEventListener("click", () => openModal("selectedModal"));
     document.getElementById("closeSelected").addEventListener("click", () => closeModal("selectedModal"));
     document.getElementById("closePreview").addEventListener("click", () => closeModal("previewModal"));
+    document.getElementById("resetPreview").addEventListener("click", resetPreview);
+    document.getElementById("previewImage").addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const image = event.currentTarget;
+      image.setPointerCapture(event.pointerId);
+      previewPointers.set(event.pointerId, previewPoint(event));
+      image.classList.add("is-gesturing");
+      if (previewPointers.size === 2) {
+        const points = Array.from(previewPointers.values()).slice(0, 2);
+        previewDistance = pointerDistance(points);
+        previewCenter = pointerCenter(points);
+      }
+    });
+    document.getElementById("previewImage").addEventListener("pointermove", (event) => {
+      if (!previewPointers.has(event.pointerId)) return;
+      event.preventDefault();
+      const previous = previewPointers.get(event.pointerId);
+      previewPointers.set(event.pointerId, previewPoint(event));
+      if (previewPointers.size === 1 && previewZoom > 1) {
+        previewPanX += event.clientX - previous.x;
+        previewPanY += event.clientY - previous.y;
+      } else if (previewPointers.size >= 2) {
+        const points = Array.from(previewPointers.values()).slice(0, 2);
+        const distance = pointerDistance(points);
+        const center = pointerCenter(points);
+        if (previewDistance > 0) previewZoom = Math.max(1, Math.min(4, previewZoom * distance / previewDistance));
+        if (previewCenter) {
+          previewPanX += center.x - previewCenter.x;
+          previewPanY += center.y - previewCenter.y;
+        }
+        previewDistance = distance;
+        previewCenter = center;
+      }
+      applyPreviewTransform();
+    });
+    document.getElementById("previewImage").addEventListener("pointerup", endPreviewPointer);
+    document.getElementById("previewImage").addEventListener("pointercancel", endPreviewPointer);
+    document.getElementById("previewImage").addEventListener("dblclick", () => {
+      if (previewZoom > 1) resetPreview();
+      else {
+        previewZoom = 2;
+        applyPreviewTransform();
+      }
+    });
     document.getElementById("selectedList").addEventListener("click", (event) => {
       const button = event.target.closest("[data-selected-cancel]");
       if (button) void updateSelection("cancel", button.dataset.selectedCancel);
@@ -284,6 +395,13 @@
       if (!value) {
         document.getElementById("status").textContent = "请先填写达人姓名或账号。";
         return;
+      }
+      if (creatorName && value !== creatorName && (payload?.link?.selected_product_ids || []).length) {
+        const confirmed = window.confirm("修改达人名称会切换到新的选款身份；当前名称下已选商品不会自动转移。是否继续？");
+        if (!confirmed) {
+          document.getElementById("creatorNameInput").value = creatorName;
+          return;
+        }
       }
       creatorName = value;
       localStorage.setItem(nameStorageKey, creatorName);

@@ -157,8 +157,19 @@
         <span class="chip">${escapeHtml(link.project_name || "本轮项目")}</span>
         <span class="chip">${escapeHtml(link.grade || "全部等级")}</span>
       `;
-      const products = payload.products || [];
       const selectedIds = new Set(link.selected_product_ids || []);
+      const gradeOrder = { "S级": 0, "A级": 1, "B级": 2, "C级": 3 };
+      const products = [...(payload.products || [])].sort((left, right) => {
+        const leftSelected = selectedIds.has(left.product_id);
+        const rightSelected = selectedIds.has(right.product_id);
+        const leftAvailable = Number(left.target_count) > 0 && (left.available || leftSelected);
+        const rightAvailable = Number(right.target_count) > 0 && (right.available || rightSelected);
+        const leftRank = leftAvailable && !leftSelected ? 0 : leftSelected ? 1 : 2;
+        const rightRank = rightAvailable && !rightSelected ? 0 : rightSelected ? 1 : 2;
+        return leftRank - rightRank
+          || (gradeOrder[left.grade] ?? 9) - (gradeOrder[right.grade] ?? 9)
+          || String(left.style_code || left.product_id).localeCompare(String(right.style_code || right.product_id), "zh-CN");
+      });
       const grid = document.getElementById("productGrid");
       grid.innerHTML = products.map((product) => {
         const selected = selectedIds.has(product.product_id);
@@ -177,7 +188,8 @@
         `;
       }).join("");
       document.getElementById("status").hidden = products.length > 0;
-      document.getElementById("nameGate").hidden = true;
+      document.getElementById("creatorNameInput").value = creatorName;
+      document.getElementById("startSelection").textContent = "修改达人名称";
       const selected = products.filter((product) => selectedIds.has(product.product_id));
       const dock = document.getElementById("selectionDock");
       dock.hidden = !selected.length;
@@ -383,6 +395,13 @@
       if (!value) {
         document.getElementById("status").textContent = "请先填写达人姓名或账号。";
         return;
+      }
+      if (creatorName && value !== creatorName && (payload?.link?.selected_product_ids || []).length) {
+        const confirmed = window.confirm("修改达人名称会切换到新的选款身份；当前名称下已选商品不会自动转移。是否继续？");
+        if (!confirmed) {
+          document.getElementById("creatorNameInput").value = creatorName;
+          return;
+        }
       }
       creatorName = value;
       localStorage.setItem(nameStorageKey, creatorName);
