@@ -17,6 +17,9 @@
     .summary { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
     .chip { padding:7px 11px; border-radius:999px; background:#e7f3ec; color:#236348; font-size:13px; font-weight:700; }
     .notice { margin:18px 0; padding:12px 14px; border-left:4px solid var(--green); border-radius:7px; background:#fff; color:#4d5952; line-height:1.6; }
+    .name-gate { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:12px; background:#fff; }
+    .name-gate input { min-height:44px; border:1px solid #cbd6cf; border-radius:8px; padding:0 12px; font:inherit; }
+    .name-gate button { min-height:44px; border:0; border-radius:8px; padding:0 22px; background:var(--green); color:#fff; font-weight:800; cursor:pointer; }
     .status { min-height:48px; display:flex; align-items:center; justify-content:center; margin:18px 0; border:1px dashed #cbd5cf; border-radius:10px; color:var(--muted); background:rgba(255,255,255,.72); text-align:center; padding:10px; }
     .status.error { border-color:#e0b8b4; color:var(--danger); background:#fff7f6; }
     .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; }
@@ -33,7 +36,7 @@
     .choose:disabled { cursor:not-allowed; background:#a9b2ad; }
     .choose.selected { background:#8a473e; }
     .success { margin-top:18px; padding:18px; border:1px solid #bcd7c7; border-radius:12px; background:#eff8f2; color:#21563f; line-height:1.7; }
-    @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.grid{grid-template-columns:1fr 1fr}.product{grid-template-rows:140px auto}.name{font-size:13px} }
+    @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.name-gate{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}.product{grid-template-rows:140px auto}.name{font-size:13px} }
   </style>
 </head>
 <body>
@@ -45,6 +48,10 @@
       <div class="summary" id="summary"></div>
     </section>
     <p class="notice">请确认款号后再提交。多人可以选择同一款，但选择人数不会超过该款目标数量。</p>
+    <section class="name-gate" id="nameGate">
+      <input id="creatorNameInput" type="text" maxlength="40" autocomplete="name" placeholder="请输入达人姓名或账号" />
+      <button id="startSelection" type="button">开始选款</button>
+    </section>
     <div class="status" id="status">正在同步实时名额…</div>
     <section class="grid" id="productGrid" aria-live="polite"></section>
     <div class="success" id="success" hidden></div>
@@ -53,6 +60,8 @@
     const endpoint = "https://jksawuwpdtcbpbngqiao.supabase.co/functions/v1/workbench-product-selection";
     const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imprc2F3dXdwZHRjYnBibmdxaWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTM3NjcsImV4cCI6MjA5ODk4OTc2N30.dy7pCNtTYDkzfGA9hGMXQFvfCVCaEq71E9OAoPZN7hU";
     const token = new URLSearchParams(location.search).get("token") || "";
+    const nameStorageKey = `workbenchSelectionName:${token}`;
+    let creatorName = localStorage.getItem(nameStorageKey) || "";
     let payload = null;
     let submitting = false;
 
@@ -64,7 +73,7 @@
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action, token, ...extra })
+        body: JSON.stringify({ action, token, creator_name: creatorName, ...extra })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -77,7 +86,7 @@
 
     function render() {
       const link = payload.link;
-      document.getElementById("title").textContent = `${link.creator_name || "您好"}，请选择合作商品`;
+      document.getElementById("title").textContent = `${creatorName || "您好"}，请选择合作商品`;
       document.getElementById("summary").innerHTML = `
         <span class="chip">${escapeHtml(link.project_name || "本轮项目")}</span>
         <span class="chip">${escapeHtml(link.grade || "全部等级")}</span>
@@ -102,6 +111,7 @@
         `;
       }).join("");
       document.getElementById("status").hidden = products.length > 0;
+      document.getElementById("nameGate").hidden = true;
       const selected = products.filter((product) => selectedIds.has(product.product_id));
       const success = document.getElementById("success");
       success.hidden = !selected.length;
@@ -115,6 +125,12 @@
       if (!token) {
         status.className = "status error";
         status.textContent = "选款链接不完整，请联系合作负责人重新发送。";
+        return;
+      }
+      if (!creatorName) {
+        status.className = "status";
+        status.textContent = "请输入达人姓名或账号后开始选款。";
+        document.getElementById("creatorNameInput").focus();
         return;
       }
       try {
@@ -147,6 +163,23 @@
         submitting = false;
         if (payload) render();
       }
+    });
+
+    function startSelection() {
+      const value = document.getElementById("creatorNameInput").value.trim();
+      if (!value) {
+        document.getElementById("status").textContent = "请先填写达人姓名或账号。";
+        return;
+      }
+      creatorName = value;
+      localStorage.setItem(nameStorageKey, creatorName);
+      void load();
+    }
+
+    document.getElementById("creatorNameInput").value = creatorName;
+    document.getElementById("startSelection").addEventListener("click", startSelection);
+    document.getElementById("creatorNameInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") startSelection();
     });
 
     load();
