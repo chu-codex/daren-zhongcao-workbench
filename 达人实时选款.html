@@ -80,7 +80,7 @@
       document.getElementById("title").textContent = `${link.creator_name || "您好"}，请选择合作商品`;
       document.getElementById("summary").innerHTML = `
         <span class="chip">${escapeHtml(link.project_name || "本轮项目")}</span>
-        <span class="chip">${escapeHtml(link.grade)}</span>
+        <span class="chip">${escapeHtml(link.grade || "全部等级")}</span>
       `;
       const products = payload.products || [];
       const selectedIds = new Set(link.selected_product_ids || []);
