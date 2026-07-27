@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>达人实时选款</title>
+  <style>
+    :root { color-scheme: light; --green:#24785a; --ink:#14211c; --muted:#68736c; --line:#d9e1dc; --paper:#fff; --wash:#f4f7f4; --danger:#b64b43; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:linear-gradient(180deg,#edf6f0 0,#f7f8f5 220px); color:var(--ink); font-family:Arial,"Microsoft YaHei",sans-serif; }
+    button { font:inherit; }
+    .shell { width:min(1040px,100%); margin:0 auto; padding:36px 18px 60px; }
+    .hero { padding:26px; border:1px solid #cadbd1; border-radius:16px; background:rgba(255,255,255,.94); box-shadow:0 18px 50px rgba(38,77,60,.08); }
+    .eyebrow { margin:0 0 8px; color:var(--green); font-size:13px; font-weight:800; letter-spacing:.08em; }
+    h1 { margin:0; font-size:clamp(26px,5vw,38px); }
+    .intro { margin:10px 0 0; color:var(--muted); line-height:1.7; }
+    .summary { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+    .chip { padding:7px 11px; border-radius:999px; background:#e7f3ec; color:#236348; font-size:13px; font-weight:700; }
+    .notice { margin:18px 0; padding:12px 14px; border-left:4px solid var(--green); border-radius:7px; background:#fff; color:#4d5952; line-height:1.6; }
+    .status { min-height:48px; display:flex; align-items:center; justify-content:center; margin:18px 0; border:1px dashed #cbd5cf; border-radius:10px; color:var(--muted); background:rgba(255,255,255,.72); text-align:center; padding:10px; }
+    .status.error { border-color:#e0b8b4; color:var(--danger); background:#fff7f6; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; }
+    .product { position:relative; overflow:hidden; display:grid; grid-template-rows:180px auto; border:1px solid var(--line); border-radius:13px; background:var(--paper); box-shadow:0 10px 28px rgba(35,57,47,.06); }
+    .product.is-selected { border-color:var(--green); box-shadow:0 0 0 2px rgba(36,120,90,.14),0 10px 28px rgba(35,57,47,.08); }
+    .product.is-full { opacity:.62; }
+    .image { display:grid; place-items:center; background:#f1f4f1; color:#7a847e; font-size:14px; overflow:hidden; }
+    .image img { width:100%; height:100%; object-fit:cover; }
+    .body { display:grid; gap:8px; padding:14px; }
+    .code { color:var(--green); font-size:16px; font-weight:800; }
+    .name { min-height:42px; color:#38433d; font-size:14px; line-height:1.5; }
+    .meta { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:12px; }
+    .choose { min-height:40px; border:0; border-radius:8px; background:var(--green); color:#fff; font-weight:800; cursor:pointer; }
+    .choose:disabled { cursor:not-allowed; background:#a9b2ad; }
+    .choose.selected { background:#8a473e; }
+    .success { margin-top:18px; padding:18px; border:1px solid #bcd7c7; border-radius:12px; background:#eff8f2; color:#21563f; line-height:1.7; }
+    @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.grid{grid-template-columns:1fr 1fr}.product{grid-template-rows:140px auto}.name{font-size:13px} }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">达人合作选款</p>
+      <h1 id="title">正在读取可选商品</h1>
+      <p class="intro">每款商品均按计划人数实时限额。提交成功才会占用名额；已满商品无法继续选择。</p>
+      <div class="summary" id="summary"></div>
+    </section>
+    <p class="notice">请确认款号后再提交。多人可以选择同一款，但选择人数不会超过该款目标数量。</p>
+    <div class="status" id="status">正在同步实时名额…</div>
+    <section class="grid" id="productGrid" aria-live="polite"></section>
+    <div class="success" id="success" hidden></div>
+  </main>
+  <script>
+    const endpoint = "https://jksawuwpdtcbpbngqiao.supabase.co/functions/v1/workbench-product-selection";
+    const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imprc2F3dXdwZHRjYnBibmdxaWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTM3NjcsImV4cCI6MjA5ODk4OTc2N30.dy7pCNtTYDkzfGA9hGMXQFvfCVCaEq71E9OAoPZN7hU";
+    const token = new URLSearchParams(location.search).get("token") || "";
+    let payload = null;
+    let submitting = false;
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[char]);
+    }
+
+    async function call(action, extra = {}) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action, token, ...extra })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(data.error || "选款服务暂时不可用");
+        error.code = data.code || "";
+        throw error;
+      }
+      return data;
+    }
+
+    function render() {
+      const link = payload.link;
+      document.getElementById("title").textContent = `${link.creator_name || "您好"}，请选择合作商品`;
+      document.getElementById("summary").innerHTML = `
+        <span class="chip">${escapeHtml(link.project_name || "本轮项目")}</span>
+        <span class="chip">${escapeHtml(link.grade)}</span>
+      `;
+      const products = payload.products || [];
+      const selectedIds = new Set(link.selected_product_ids || []);
+      const grid = document.getElementById("productGrid");
+      grid.innerHTML = products.map((product) => {
+        const selected = selectedIds.has(product.product_id);
+        const configured = Number(product.target_count) > 0;
+        const available = configured && (product.available || selected);
+        return `
+          <article class="product ${selected ? "is-selected" : ""} ${available ? "" : "is-full"}">
+            <div class="image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" />` : "商品图片待补"}</div>
+            <div class="body">
+              <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
+              <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
+              <div class="meta"><span>${escapeHtml(product.category || product.grade)}</span><strong>${selected ? "已选择" : !configured ? "配额待定" : available ? `剩余 ${product.remaining}` : "名额已满"}</strong></div>
+              <button class="choose ${selected ? "selected" : ""}" type="button" data-product-id="${escapeHtml(product.product_id)}" data-action="${selected ? "cancel" : "submit"}" ${available && !submitting ? "" : "disabled"}>${selected ? "取消选择" : !configured ? "暂不可选" : available ? "选择这款" : "名额已满"}</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+      document.getElementById("status").hidden = products.length > 0;
+      const selected = products.filter((product) => selectedIds.has(product.product_id));
+      const success = document.getElementById("success");
+      success.hidden = !selected.length;
+      if (selected.length) {
+        success.innerHTML = `<strong>已选择 ${selected.length} 款</strong><br />${selected.map((item) => escapeHtml(item.style_code || item.product_id)).join("、")}。点击“取消选择”可以释放名额。`;
+      }
+    }
+
+    async function load() {
+      const status = document.getElementById("status");
+      if (!token) {
+        status.className = "status error";
+        status.textContent = "选款链接不完整，请联系合作负责人重新发送。";
+        return;
+      }
+      try {
+        payload = await call("open");
+        render();
+      } catch (error) {
+        status.className = "status error";
+        status.textContent = error.message;
+      }
+    }
+
+    document.getElementById("productGrid").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-product-id]");
+      if (!button || submitting) return;
+      submitting = true;
+      render();
+      try {
+        await call(button.dataset.action, { product_id: button.dataset.productId });
+        payload = await call("open");
+        render();
+      } catch (error) {
+        const status = document.getElementById("status");
+        status.hidden = false;
+        status.className = "status error";
+        status.textContent = error.message;
+        if (error.code === "PRODUCT_FULL") {
+          payload = await call("open");
+        }
+      } finally {
+        submitting = false;
+        if (payload) render();
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
