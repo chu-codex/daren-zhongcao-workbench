@@ -7,7 +7,10 @@
   <style>
     :root { color-scheme: light; --green:#24785a; --ink:#14211c; --muted:#68736c; --line:#d9e1dc; --paper:#fff; --wash:#f4f7f4; --danger:#b64b43; }
     * { box-sizing: border-box; }
+    [hidden] { display:none!important; }
     body { margin:0; min-height:100vh; background:linear-gradient(180deg,#edf6f0 0,#f7f8f5 220px); color:var(--ink); font-family:Arial,"Microsoft YaHei",sans-serif; }
+    body.has-selection { padding-bottom:calc(86px + env(safe-area-inset-bottom)); }
+    body.modal-open { overflow:hidden; }
     button { font:inherit; }
     .shell { width:min(1040px,100%); margin:0 auto; padding:36px 18px 60px; }
     .hero { padding:26px; border:1px solid #cadbd1; border-radius:16px; background:rgba(255,255,255,.94); box-shadow:0 18px 50px rgba(38,77,60,.08); }
@@ -27,8 +30,9 @@
     .product { position:relative; overflow:hidden; display:grid; grid-template-rows:auto auto; border:1px solid var(--line); border-radius:13px; background:var(--paper); box-shadow:0 10px 28px rgba(35,57,47,.06); }
     .product.is-selected { border-color:var(--green); box-shadow:0 0 0 2px rgba(36,120,90,.14),0 10px 28px rgba(35,57,47,.08); }
     .product.is-full { opacity:.62; }
-    .image { display:grid; place-items:center; aspect-ratio:16/9; background:#f1f4f1; color:#7a847e; font-size:14px; overflow:hidden; }
+    .image { position:relative; display:grid; width:100%; padding:0; border:0; place-items:center; aspect-ratio:16/9; background:#f1f4f1; color:#7a847e; font-size:14px; overflow:hidden; cursor:zoom-in; touch-action:manipulation; }
     .image img { width:100%; height:100%; object-fit:contain; }
+    .image::after { content:"点击放大"; position:absolute; right:10px; bottom:10px; padding:6px 9px; border-radius:999px; background:rgba(20,33,28,.78); color:#fff; font-size:12px; font-weight:700; }
     .body { display:grid; gap:8px; padding:14px; }
     .code { color:var(--green); font-size:16px; font-weight:800; }
     .name { min-height:42px; color:#38433d; font-size:14px; line-height:1.5; }
@@ -36,8 +40,33 @@
     .choose { min-height:40px; border:0; border-radius:8px; background:var(--green); color:#fff; font-weight:800; cursor:pointer; }
     .choose:disabled { cursor:not-allowed; background:#a9b2ad; }
     .choose.selected { background:#8a473e; }
-    .success { margin-top:18px; padding:18px; border:1px solid #bcd7c7; border-radius:12px; background:#eff8f2; color:#21563f; line-height:1.7; }
+    .selection-dock { position:fixed; z-index:30; left:50%; bottom:max(12px,env(safe-area-inset-bottom)); width:min(720px,calc(100% - 24px)); transform:translateX(-50%); }
+    .selection-dock button { display:flex; width:100%; min-height:58px; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; border:0; border-radius:14px; background:var(--ink); color:#fff; box-shadow:0 12px 36px rgba(20,33,28,.28); cursor:pointer; touch-action:manipulation; }
+    .selection-dock span { display:grid; gap:2px; text-align:left; }
+    .selection-dock small { max-width:58vw; overflow:hidden; color:#dfeae4; text-overflow:ellipsis; white-space:nowrap; }
+    .selection-dock strong { flex:none; color:#c7efda; }
+    .modal { position:fixed; z-index:50; inset:0; display:grid; background:rgba(10,16,13,.78); }
+    .modal[hidden] { display:none; }
+    .modal-close { position:absolute; z-index:2; top:max(14px,env(safe-area-inset-top)); right:14px; width:48px; height:48px; border:1px solid rgba(255,255,255,.5); border-radius:50%; background:rgba(20,33,28,.84); color:#fff; font-size:28px; line-height:1; cursor:pointer; touch-action:manipulation; }
+    .preview-modal { place-items:center; padding:72px 12px 24px; overflow:auto; overscroll-behavior:contain; }
+    .preview-modal figure { display:grid; width:min(1200px,100%); min-height:calc(100dvh - 110px); margin:0; place-items:center; align-content:center; gap:12px; }
+    .preview-modal img { display:block; max-width:100%; max-height:calc(100dvh - 150px); object-fit:contain; background:#fff; box-shadow:0 16px 60px rgba(0,0,0,.32); }
+    .preview-modal figcaption { color:#fff; font-weight:700; text-align:center; }
+    .sheet-modal { align-items:end; background:rgba(10,16,13,.56); }
+    .sheet { width:min(720px,100%); max-height:min(78dvh,720px); margin:0 auto; overflow:hidden; border-radius:20px 20px 0 0; background:#fff; box-shadow:0 -16px 48px rgba(20,33,28,.2); }
+    .sheet-head { display:flex; min-height:64px; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); }
+    .sheet-head h2 { margin:0; font-size:20px; }
+    .sheet-head button { min-width:48px; min-height:44px; border:0; border-radius:8px; background:#edf3ef; color:var(--ink); font-weight:700; cursor:pointer; }
+    .selected-list { display:grid; gap:10px; max-height:calc(78dvh - 64px); overflow:auto; padding:12px 16px calc(18px + env(safe-area-inset-bottom)); overscroll-behavior:contain; }
+    .selected-item { display:grid; grid-template-columns:88px minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px; border:1px solid var(--line); border-radius:12px; }
+    .selected-item img { width:88px; aspect-ratio:16/9; border-radius:7px; background:var(--wash); object-fit:cover; }
+    .selected-item div { min-width:0; }
+    .selected-item strong,.selected-item span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .selected-item span { margin-top:4px; color:var(--muted); font-size:13px; }
+    .selected-item button { min-width:72px; min-height:44px; border:1px solid #d9b3ae; border-radius:8px; background:#fff7f6; color:#8a473e; font-weight:700; cursor:pointer; }
     @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.name-gate{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.name{font-size:13px} }
+    @media (max-width:560px) { .selected-item{grid-template-columns:72px minmax(0,1fr) auto;gap:8px}.selected-item img{width:72px}.selected-item button{min-width:64px;padding:0 8px} }
+    @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:none!important; } }
   </style>
 </head>
 <body>
@@ -56,8 +85,29 @@
     </section>
     <div class="status" id="status">正在同步实时名额…</div>
     <section class="grid" id="productGrid" aria-live="polite"></section>
-    <div class="success" id="success" hidden></div>
   </main>
+  <div class="selection-dock" id="selectionDock" hidden>
+    <button type="button" id="openSelected" aria-haspopup="dialog">
+      <span><b id="selectedCount">已选 0 款</b><small id="selectedCodes"></small></span>
+      <strong>查看已选</strong>
+    </button>
+  </div>
+  <div class="modal preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="商品大图预览" hidden>
+    <button class="modal-close" id="closePreview" type="button" aria-label="关闭大图">×</button>
+    <figure>
+      <img id="previewImage" alt="" />
+      <figcaption id="previewCaption"></figcaption>
+    </figure>
+  </div>
+  <div class="modal sheet-modal" id="selectedModal" role="dialog" aria-modal="true" aria-labelledby="selectedTitle" hidden>
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="selectedTitle">已选商品</h2>
+        <button type="button" id="closeSelected">关闭</button>
+      </header>
+      <div class="selected-list" id="selectedList"></div>
+    </section>
+  </div>
   <script>
     const endpoint = "https://jksawuwpdtcbpbngqiao.supabase.co/functions/v1/workbench-product-selection";
     const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imprc2F3dXdwZHRjYnBibmdxaWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MTM3NjcsImV4cCI6MjA5ODk4OTc2N30.dy7pCNtTYDkzfGA9hGMXQFvfCVCaEq71E9OAoPZN7hU";
@@ -102,7 +152,7 @@
         const available = configured && (product.available || selected);
         return `
           <article class="product ${selected ? "is-selected" : ""} ${available ? "" : "is-full"}">
-            <a class="image" href="${product.image_url ? escapeHtml(product.image_url) : "#"}" target="${product.image_url ? "_blank" : "_self"}" rel="noopener">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" loading="lazy" />` : "商品图片待补"}</a>
+            <button class="image" type="button" data-preview-url="${escapeHtml(product.image_url || "")}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" loading="lazy" />` : "商品图片待补"}</button>
             <div class="body">
               <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
               <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
@@ -115,10 +165,65 @@
       document.getElementById("status").hidden = products.length > 0;
       document.getElementById("nameGate").hidden = true;
       const selected = products.filter((product) => selectedIds.has(product.product_id));
-      const success = document.getElementById("success");
-      success.hidden = !selected.length;
-      if (selected.length) {
-        success.innerHTML = `<strong>已选择 ${selected.length} 款</strong><br />${selected.map((item) => escapeHtml(item.style_code || item.product_id)).join("、")}。点击“取消选择”可以释放名额。`;
+      const dock = document.getElementById("selectionDock");
+      dock.hidden = !selected.length;
+      document.body.classList.toggle("has-selection", selected.length > 0);
+      document.getElementById("selectedCount").textContent = `已选 ${selected.length} 款`;
+      document.getElementById("selectedCodes").textContent = selected
+        .map((item) => item.style_code || item.product_id)
+        .join("、");
+      document.getElementById("selectedTitle").textContent = `已选商品（${selected.length}）`;
+      document.getElementById("selectedList").innerHTML = selected.map((item) => `
+        <article class="selected-item">
+          ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.product_name || item.style_code)}" loading="lazy" />` : "<span></span>"}
+          <div>
+            <strong>${escapeHtml(item.style_code || item.product_id)}</strong>
+            <span>${escapeHtml(item.product_name || item.category || "商品")}</span>
+          </div>
+          <button type="button" data-selected-cancel="${escapeHtml(item.product_id)}">取消</button>
+        </article>
+      `).join("");
+      if (!selected.length) closeModal("selectedModal");
+    }
+
+    function openModal(id) {
+      document.getElementById(id).hidden = false;
+      document.body.classList.add("modal-open");
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).hidden = true;
+      if (document.getElementById("previewModal").hidden && document.getElementById("selectedModal").hidden) {
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    function openPreview(url, caption) {
+      if (!url) return;
+      document.getElementById("previewImage").src = url;
+      document.getElementById("previewImage").alt = `${caption || "商品"}大图`;
+      document.getElementById("previewCaption").textContent = caption || "";
+      openModal("previewModal");
+      document.getElementById("closePreview").focus();
+    }
+
+    async function updateSelection(action, productId) {
+      if (!productId || submitting) return;
+      submitting = true;
+      render();
+      try {
+        await call(action, { product_id: productId });
+        payload = await call("open");
+        render();
+      } catch (error) {
+        const status = document.getElementById("status");
+        status.hidden = false;
+        status.className = "status error";
+        status.textContent = error.message;
+        if (error.code === "PRODUCT_FULL") payload = await call("open");
+      } finally {
+        submitting = false;
+        if (payload) render();
       }
     }
 
@@ -144,26 +249,33 @@
       }
     }
 
-    document.getElementById("productGrid").addEventListener("click", async (event) => {
+    document.getElementById("productGrid").addEventListener("click", (event) => {
+      const preview = event.target.closest("[data-preview-url]");
+      if (preview) {
+        openPreview(preview.dataset.previewUrl, preview.dataset.previewCaption);
+        return;
+      }
       const button = event.target.closest("[data-product-id]");
-      if (!button || submitting) return;
-      submitting = true;
-      render();
-      try {
-        await call(button.dataset.action, { product_id: button.dataset.productId });
-        payload = await call("open");
-        render();
-      } catch (error) {
-        const status = document.getElementById("status");
-        status.hidden = false;
-        status.className = "status error";
-        status.textContent = error.message;
-        if (error.code === "PRODUCT_FULL") {
-          payload = await call("open");
-        }
-      } finally {
-        submitting = false;
-        if (payload) render();
+      if (button) void updateSelection(button.dataset.action, button.dataset.productId);
+    });
+
+    document.getElementById("openSelected").addEventListener("click", () => openModal("selectedModal"));
+    document.getElementById("closeSelected").addEventListener("click", () => closeModal("selectedModal"));
+    document.getElementById("closePreview").addEventListener("click", () => closeModal("previewModal"));
+    document.getElementById("selectedList").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-selected-cancel]");
+      if (button) void updateSelection("cancel", button.dataset.selectedCancel);
+    });
+    document.getElementById("previewModal").addEventListener("click", (event) => {
+      if (event.target.id === "previewModal") closeModal("previewModal");
+    });
+    document.getElementById("selectedModal").addEventListener("click", (event) => {
+      if (event.target.id === "selectedModal") closeModal("selectedModal");
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeModal("previewModal");
+        closeModal("selectedModal");
       }
     });
 
