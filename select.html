@@ -146,6 +146,13 @@
         : source;
     }
 
+    function previewImageUrl(product) {
+      const source = String(product.image_url || "");
+      return source.includes("/assets/selection-catalog/")
+        ? source.replace("/assets/selection-catalog/", "/assets/selection-catalog/highres/")
+        : source;
+    }
+
     async function call(action, extra = {}) {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -191,7 +198,7 @@
         const available = configured && (product.available || selected);
         return `
           <article class="product ${selectedOrDrafted ? "is-selected" : ""} ${available ? "" : "is-full"}">
-            <button class="image" type="button" data-preview-url="${escapeHtml(product.image_url || "")}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(cardImageUrl(product))}" alt="${escapeHtml(product.product_name || product.style_code)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" />` : "商品图片待补"}</button>
+            <button class="image" type="button" data-preview-url="${escapeHtml(previewImageUrl(product))}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(cardImageUrl(product))}" alt="${escapeHtml(product.product_name || product.style_code)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" />` : "商品图片待补"}</button>
             <div class="body">
               <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
               <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
