@@ -40,8 +40,10 @@
     .choose { min-height:40px; border:0; border-radius:8px; background:var(--green); color:#fff; font-weight:800; cursor:pointer; }
     .choose:disabled { cursor:not-allowed; background:#a9b2ad; }
     .choose.selected { background:#8a473e; }
-    .selection-dock { position:fixed; z-index:30; left:50%; bottom:max(12px,env(safe-area-inset-bottom)); width:min(720px,calc(100% - 24px)); transform:translateX(-50%); }
+    .selection-dock { position:fixed; z-index:30; left:50%; bottom:max(12px,env(safe-area-inset-bottom)); display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; width:min(720px,calc(100% - 24px)); transform:translateX(-50%); }
     .selection-dock button { display:flex; width:100%; min-height:58px; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; border:0; border-radius:14px; background:var(--ink); color:#fff; box-shadow:0 12px 36px rgba(20,33,28,.28); cursor:pointer; touch-action:manipulation; }
+    .selection-dock .submit-selection { width:auto; background:var(--green); font-weight:800; white-space:nowrap; }
+    .selection-dock .submit-selection:disabled { cursor:not-allowed; background:#a9b2ad; }
     .selection-dock span { display:grid; gap:2px; text-align:left; }
     .selection-dock small { max-width:58vw; overflow:hidden; color:#dfeae4; text-overflow:ellipsis; white-space:nowrap; }
     .selection-dock strong { flex:none; color:#c7efda; }
@@ -68,7 +70,7 @@
     .selected-item strong,.selected-item span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .selected-item span { margin-top:4px; color:var(--muted); font-size:13px; }
     .selected-item button { min-width:72px; min-height:44px; border:1px solid #d9b3ae; border-radius:8px; background:#fff7f6; color:#8a473e; font-weight:700; cursor:pointer; }
-    @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.name-gate{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.name{font-size:13px} }
+    @media (max-width:560px) { .shell{padding:18px 12px 40px}.hero{padding:20px}.name-gate{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.name{font-size:13px}.selection-dock{grid-template-columns:minmax(0,1fr) auto}.selection-dock .submit-selection{padding:10px 13px} }
     @media (max-width:560px) { .selected-item{grid-template-columns:72px minmax(0,1fr) auto;gap:8px}.selected-item img{width:72px}.selected-item button{min-width:64px;padding:0 8px} }
     @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:none!important; } }
   </style>
@@ -95,6 +97,7 @@
       <span><b id="selectedCount">已选 0 款</b><small id="selectedCodes"></small></span>
       <strong>查看已选</strong>
     </button>
+    <button class="submit-selection" id="submitSelection" type="button">提交选款</button>
   </div>
   <div class="modal preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="商品大图预览" hidden>
     <div class="preview-tools">
@@ -124,6 +127,7 @@
     let creatorName = localStorage.getItem(nameStorageKey) || "";
     let payload = null;
     let submitting = false;
+    const draftProductIds = new Set();
     const previewPointers = new Map();
     let previewZoom = 1;
     let previewPanX = 0;
@@ -158,10 +162,11 @@
         <span class="chip">${escapeHtml(link.grade || "全部等级")}</span>
       `;
       const selectedIds = new Set(link.selected_product_ids || []);
+      const selectedOrDraftIds = new Set([...selectedIds, ...draftProductIds]);
       const gradeOrder = { "S级": 0, "A级": 1, "B级": 2, "C级": 3 };
       const products = [...(payload.products || [])].sort((left, right) => {
-        const leftSelected = selectedIds.has(left.product_id);
-        const rightSelected = selectedIds.has(right.product_id);
+        const leftSelected = selectedOrDraftIds.has(left.product_id);
+        const rightSelected = selectedOrDraftIds.has(right.product_id);
         const leftAvailable = Number(left.target_count) > 0 && (left.available || leftSelected);
         const rightAvailable = Number(right.target_count) > 0 && (right.available || rightSelected);
         const leftRank = leftAvailable && !leftSelected ? 0 : leftSelected ? 1 : 2;
@@ -173,16 +178,18 @@
       const grid = document.getElementById("productGrid");
       grid.innerHTML = products.map((product) => {
         const selected = selectedIds.has(product.product_id);
+        const drafted = draftProductIds.has(product.product_id);
+        const selectedOrDrafted = selected || drafted;
         const configured = Number(product.target_count) > 0;
         const available = configured && (product.available || selected);
         return `
-          <article class="product ${selected ? "is-selected" : ""} ${available ? "" : "is-full"}">
+          <article class="product ${selectedOrDrafted ? "is-selected" : ""} ${available ? "" : "is-full"}">
             <button class="image" type="button" data-preview-url="${escapeHtml(product.image_url || "")}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.product_name || product.style_code)}" loading="lazy" />` : "商品图片待补"}</button>
             <div class="body">
               <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
               <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
-              <div class="meta"><span>${escapeHtml(product.category || product.grade)}</span><strong>${selected ? "已选择" : !configured ? "配额待定" : available ? `剩余 ${product.remaining}` : "名额已满"}</strong></div>
-              <button class="choose ${selected ? "selected" : ""}" type="button" data-product-id="${escapeHtml(product.product_id)}" data-action="${selected ? "cancel" : "submit"}" ${available && !submitting ? "" : "disabled"}>${selected ? "取消选择" : !configured ? "暂不可选" : available ? "选择这款" : "名额已满"}</button>
+              <div class="meta"><span>${escapeHtml(product.category || product.grade)}</span><strong>${selected ? "已提交" : drafted ? "待提交" : !configured ? "配额待定" : available ? `剩余 ${product.remaining}` : "名额已满"}</strong></div>
+              <button class="choose ${selectedOrDrafted ? "selected" : ""}" type="button" data-product-id="${escapeHtml(product.product_id)}" data-action="${selected ? "cancel" : ""}" data-draft-action="${drafted ? "remove" : selected ? "" : "add"}" ${available && !submitting ? "" : "disabled"}>${selected ? "取消已提交" : drafted ? "取消勾选" : !configured ? "暂不可选" : available ? "选择这款" : "名额已满"}</button>
             </div>
           </article>
         `;
@@ -190,11 +197,12 @@
       document.getElementById("status").hidden = products.length > 0;
       document.getElementById("creatorNameInput").value = creatorName;
       document.getElementById("startSelection").textContent = "修改达人名称";
-      const selected = products.filter((product) => selectedIds.has(product.product_id));
+      const selected = products.filter((product) => selectedOrDraftIds.has(product.product_id));
+      const draftCount = [...draftProductIds].filter((id) => !selectedIds.has(id)).length;
       const dock = document.getElementById("selectionDock");
       dock.hidden = !selected.length;
       document.body.classList.toggle("has-selection", selected.length > 0);
-      document.getElementById("selectedCount").textContent = `已选 ${selected.length} 款`;
+      document.getElementById("selectedCount").textContent = draftCount ? `待提交 ${draftCount} 款` : `已提交 ${selected.length} 款`;
       document.getElementById("selectedCodes").textContent = selected
         .map((item) => item.style_code || item.product_id)
         .join("、");
@@ -206,9 +214,13 @@
             <strong>${escapeHtml(item.style_code || item.product_id)}</strong>
             <span>${escapeHtml(item.product_name || item.category || "商品")}</span>
           </div>
-          <button type="button" data-selected-cancel="${escapeHtml(item.product_id)}">取消</button>
+          <button type="button" data-selected-cancel="${escapeHtml(item.product_id)}" data-selected-drafted="${draftProductIds.has(item.product_id)}">${draftProductIds.has(item.product_id) ? "取消勾选" : "取消已提交"}</button>
         </article>
       `).join("");
+      const submitButton = document.getElementById("submitSelection");
+      submitButton.hidden = !draftCount;
+      submitButton.disabled = submitting;
+      submitButton.textContent = draftCount ? `提交选款（${draftCount}）` : "提交选款";
       if (!selected.length) closeModal("selectedModal");
     }
 
@@ -294,6 +306,42 @@
       }
     }
 
+    function updateDraftSelection(action, productId) {
+      if (!productId || submitting) return;
+      if (action === "add") draftProductIds.add(productId);
+      if (action === "remove") draftProductIds.delete(productId);
+      render();
+    }
+
+    async function submitDraftSelection() {
+      const submittedIds = new Set(payload?.link?.selected_product_ids || []);
+      const productIds = [...draftProductIds].filter((id) => !submittedIds.has(id));
+      if (!productIds.length || submitting) return;
+      submitting = true;
+      render();
+      const failed = [];
+      try {
+        for (const productId of productIds) {
+          try {
+            await call("submit", { product_id: productId });
+            draftProductIds.delete(productId);
+          } catch (error) {
+            failed.push(error.message || "提交失败");
+          }
+        }
+        payload = await call("open");
+        const status = document.getElementById("status");
+        status.hidden = false;
+        status.className = failed.length ? "status error" : "status";
+        status.textContent = failed.length
+          ? `部分商品未能提交：${failed.join("；")}`
+          : `已提交 ${productIds.length} 款选款。`;
+      } finally {
+        submitting = false;
+        if (payload) render();
+      }
+    }
+
     async function load() {
       const status = document.getElementById("status");
       if (!token) {
@@ -323,10 +371,13 @@
         return;
       }
       const button = event.target.closest("[data-product-id]");
-      if (button) void updateSelection(button.dataset.action, button.dataset.productId);
+      if (!button) return;
+      if (button.dataset.draftAction) updateDraftSelection(button.dataset.draftAction, button.dataset.productId);
+      else if (button.dataset.action) void updateSelection(button.dataset.action, button.dataset.productId);
     });
 
     document.getElementById("openSelected").addEventListener("click", () => openModal("selectedModal"));
+    document.getElementById("submitSelection").addEventListener("click", () => void submitDraftSelection());
     document.getElementById("closeSelected").addEventListener("click", () => closeModal("selectedModal"));
     document.getElementById("closePreview").addEventListener("click", () => closeModal("previewModal"));
     document.getElementById("resetPreview").addEventListener("click", resetPreview);
@@ -375,7 +426,9 @@
     });
     document.getElementById("selectedList").addEventListener("click", (event) => {
       const button = event.target.closest("[data-selected-cancel]");
-      if (button) void updateSelection("cancel", button.dataset.selectedCancel);
+      if (!button) return;
+      if (button.dataset.selectedDrafted === "true") updateDraftSelection("remove", button.dataset.selectedCancel);
+      else void updateSelection("cancel", button.dataset.selectedCancel);
     });
     document.getElementById("previewModal").addEventListener("click", (event) => {
       if (event.target.id === "previewModal") closeModal("previewModal");
@@ -396,14 +449,15 @@
         document.getElementById("status").textContent = "请先填写达人姓名或账号。";
         return;
       }
-      if (creatorName && value !== creatorName && (payload?.link?.selected_product_ids || []).length) {
-        const confirmed = window.confirm("修改达人名称会切换到新的选款身份；当前名称下已选商品不会自动转移。是否继续？");
+      if (creatorName && value !== creatorName && ((payload?.link?.selected_product_ids || []).length || draftProductIds.size)) {
+        const confirmed = window.confirm("修改达人名称会切换到新的选款身份；当前已提交或待提交的商品都不会自动转移。是否继续？");
         if (!confirmed) {
           document.getElementById("creatorNameInput").value = creatorName;
           return;
         }
       }
       creatorName = value;
+      draftProductIds.clear();
       localStorage.setItem(nameStorageKey, creatorName);
       void load();
     }
