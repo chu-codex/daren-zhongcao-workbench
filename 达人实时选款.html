@@ -139,18 +139,30 @@
       return String(value || "").replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[char]);
     }
 
+    const selectionAssetBase = "https://jksawuwpdtcbpbngqiao.supabase.co/storage/v1/object/public/workbench-selection-public/assets/selection-catalog/";
+
+    function catalogFilename(product) {
+      const source = String(product.image_url || "");
+      const marker = "/assets/selection-catalog/";
+      return source.includes(marker) ? source.split(marker).pop().split("?")[0] : "";
+    }
+
     function cardImageUrl(product) {
       const source = String(product.image_url || "");
-      return source.includes("/assets/selection-catalog/")
-        ? source.replace("/assets/selection-catalog/", "/assets/selection-catalog/thumbs/")
-        : source;
+      const filename = catalogFilename(product);
+      return filename ? `${selectionAssetBase}thumbs/${filename}` : source;
+    }
+
+    function originalImageUrl(product) {
+      const source = String(product.image_url || "");
+      const filename = catalogFilename(product);
+      return filename ? `${selectionAssetBase}${filename}` : source;
     }
 
     function previewImageUrl(product) {
       const source = String(product.image_url || "");
-      return source.includes("/assets/selection-catalog/")
-        ? source.replace("/assets/selection-catalog/", "/assets/selection-catalog/highres/")
-        : source;
+      const filename = catalogFilename(product);
+      return filename ? `${selectionAssetBase}highres/${filename}` : source;
     }
 
     async function call(action, extra = {}) {
@@ -198,7 +210,7 @@
         const available = configured && (product.available || selected);
         return `
           <article class="product ${selectedOrDrafted ? "is-selected" : ""} ${available ? "" : "is-full"}">
-            <button class="image" type="button" data-preview-url="${escapeHtml(previewImageUrl(product))}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(cardImageUrl(product))}" alt="${escapeHtml(product.product_name || product.style_code)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" />` : "商品图片待补"}</button>
+            <button class="image" type="button" data-preview-url="${escapeHtml(originalImageUrl(product))}" data-preview-highres-url="${escapeHtml(previewImageUrl(product))}" data-preview-caption="${escapeHtml(product.style_code || product.product_id)}" ${product.image_url ? "" : "disabled"}>${product.image_url ? `<img src="${escapeHtml(cardImageUrl(product))}" alt="${escapeHtml(product.product_name || product.style_code)}" width="640" height="360" loading="lazy" decoding="async" fetchpriority="low" />` : "商品图片待补"}</button>
             <div class="body">
               <div class="code">${escapeHtml(product.style_code || product.product_id)}</div>
               <div class="name">${escapeHtml(product.product_name || product.category || "商品")}</div>
@@ -271,14 +283,31 @@
       applyPreviewTransform();
     }
 
-    function openPreview(url, caption) {
+    let previewRequestId = 0;
+
+    function openPreview(url, highresUrl, caption) {
       if (!url) return;
       resetPreview();
-      document.getElementById("previewImage").src = url;
-      document.getElementById("previewImage").alt = `${caption || "商品"}大图`;
-      document.getElementById("previewCaption").textContent = caption || "";
+      const requestId = ++previewRequestId;
+      const image = document.getElementById("previewImage");
+      const captionNode = document.getElementById("previewCaption");
+      image.src = url;
+      image.alt = `${caption || "商品"}大图`;
+      captionNode.textContent = highresUrl && highresUrl !== url ? `${caption || ""} · 正在加载高清图` : (caption || "");
       openModal("previewModal");
       document.getElementById("closePreview").focus();
+      if (!highresUrl || highresUrl === url) return;
+      const highres = new Image();
+      highres.decoding = "async";
+      highres.onload = () => {
+        if (requestId !== previewRequestId) return;
+        image.src = highresUrl;
+        captionNode.textContent = `${caption || ""} · 高清图`;
+      };
+      highres.onerror = () => {
+        if (requestId === previewRequestId) captionNode.textContent = caption || "";
+      };
+      highres.src = highresUrl;
     }
 
     function previewPoint(event) {
@@ -381,7 +410,7 @@
     document.getElementById("productGrid").addEventListener("click", (event) => {
       const preview = event.target.closest("[data-preview-url]");
       if (preview) {
-        openPreview(preview.dataset.previewUrl, preview.dataset.previewCaption);
+        openPreview(preview.dataset.previewUrl, preview.dataset.previewHighresUrl, preview.dataset.previewCaption);
         return;
       }
       const button = event.target.closest("[data-product-id]");
