@@ -94,6 +94,7 @@
   const baseUrl = String(config.supabaseUrl || "").replace(/\/+$/, "");
   const anonKey = String(config.anonKey || "");
   const sessionKey = "seedWorkbenchAuthSessionV1";
+  const localAuthBaseUrl = "http://127.0.0.1:8788/api/local-auth";
 
   function authHeaders(token, extra) {
     return {
@@ -113,7 +114,9 @@
     }
     if (!response.ok) {
       const message = data?.msg || data?.message || data?.error_description || data?.error || response.statusText;
-      throw new Error(message || `HTTP ${response.status}`);
+      const error = new Error(message || `HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
     }
     return data;
   }
@@ -156,6 +159,20 @@
     };
   }
 
+  function cloudServiceUnavailable(error) {
+    const message = String(error?.message || "").toLowerCase();
+    return Number(error?.status) === 402
+      || /restricted|quota|spend cap|exceeding usage|service for this project/.test(message);
+  }
+
+  async function localAuthRequest(path, options) {
+    const response = await fetch(`${localAuthBaseUrl}${path}`, {
+      ...(options || {}),
+      headers: { "Content-Type": "application/json", ...(options?.headers || {}) }
+    });
+    return responseJson(response);
+  }
+
   const client = {
     session: null,
     user: null,
@@ -190,6 +207,7 @@
 
     async refreshSession() {
       const current = this.session || readSession();
+      if (current?.local) throw new Error("本机登录无需刷新；如已退出请重新输入本机密码");
       if (!current?.refresh_token) throw new Error("登录状态已失效，请重新登录");
       const data = await this.requestAuth("/token?grant_type=refresh_token", {
         method: "POST",
@@ -245,6 +263,13 @@
       this.session = readSession();
       if (!this.session) return false;
       try {
+        if (this.session.local) {
+          const local = await localAuthRequest("/session", { headers: { Authorization: `Bearer ${this.session.access_token}` } });
+          this.user = { id: `local:${local.phone}`, phone: `+86${local.phone}` };
+          this.profile = { user_id: this.user.id, phone: this.user.phone, display_name: "本机模式", role: "editor", active: true, must_change_password: false };
+          document.dispatchEvent(new CustomEvent("seedAuthReady", { detail: { user: this.user, profile: this.profile } }));
+          return true;
+        }
         await this.hydrate();
         return true;
       } catch (error) {
@@ -257,10 +282,25 @@
     },
 
     async signIn(phone, password) {
-      const data = await this.requestAuth("/token?grant_type=password", {
-        method: "POST",
-        body: JSON.stringify({ email: phoneLoginEmail(phone), password: String(password || "") })
-      });
+      let data;
+      try {
+        data = await this.requestAuth("/token?grant_type=password", {
+          method: "POST",
+          body: JSON.stringify({ email: phoneLoginEmail(phone), password: String(password || "") })
+        });
+      } catch (error) {
+        if (!cloudServiceUnavailable(error)) throw error;
+        const local = await localAuthRequest("/sign-in", {
+          method: "POST",
+          body: JSON.stringify({ phone: displayPhone(phone), password: String(password || "") })
+        });
+        this.session = { access_token: local.token, local: true };
+        this.user = { id: `local:${local.phone}`, phone: `+86${local.phone}` };
+        this.profile = { user_id: this.user.id, phone: this.user.phone, display_name: "本机模式", role: "editor", active: true, must_change_password: false };
+        writeSession(this.session);
+        document.dispatchEvent(new CustomEvent("seedAuthReady", { detail: { user: this.user, profile: this.profile } }));
+        return true;
+      }
       this.session = normalizeSession(data);
       if (!this.session) throw new Error("登录响应缺少会话信息");
       writeSession(this.session);
@@ -274,6 +314,7 @@
     },
 
     async updatePassword(password) {
+      if (this.session?.local) throw new Error("本机模式暂不支持在线修改密码");
       const nextPassword = String(password || "");
       if (nextPassword.length < 8) throw new Error("密码至少需要 8 位");
       const token = await this.getAccessToken();
@@ -290,7 +331,7 @@
 
     async signOut() {
       const token = this.session?.access_token;
-      if (token) {
+      if (token && !this.session?.local) {
         await fetch(`${baseUrl}/auth/v1/logout`, {
           method: "POST",
           headers: authHeaders(token)
@@ -304,6 +345,7 @@
     },
 
     async authorizedFetch(url, options) {
+      if (this.session?.local) throw new Error("本机模式不可使用云端账号管理");
       const token = await this.getAccessToken();
       const requestOptions = {
         ...(options || {}),
